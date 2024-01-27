@@ -1,6 +1,8 @@
-from fastapi import FastAPI
-# from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi import FastAPI, Path, Query
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, Field
+from typing import List
 
 
 app = FastAPI()
@@ -10,19 +12,34 @@ app.version = "0.0.1"
 
 class Movie(BaseModel):
     id: int | None = None
-    title: str
+    title: str = Field(min_length=5, max_length=15)
     overview: str | None = None
-    year: int
-    rating: float | None = None
+    year: int = Field(le=2023)
+    rating: float = Field(ge=1, le=10)
     category: str
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": 0,
+                    "title": "Movie",
+                    "overview": "Best movie ever",
+                    "year": 2002,
+                    "rating": 0.0,
+                    "category": "Movie"
+                }
+            ]
+        }
+    }
 
-movies: list[Movie] = [
+
+movies: List[Movie] = [
     Movie(
         id=1,
         title="Avatar",
         overview="En un exuberante planeta llamado Pandora viven los Na'vi, seres que ...",
-        year="2009",
+        year=2009,
         rating=7.8,
         category="Accion"
     ),
@@ -30,7 +47,7 @@ movies: list[Movie] = [
         id=2,
         title="Avatarsss",
         overview="En un exuberante planeta llamado Pandora viven los Na'vi, seres que ...",
-        year="2009",
+        year=2009,
         rating=7.8,
         category="Accion"
     ),
@@ -38,34 +55,42 @@ movies: list[Movie] = [
     Movie(id=3,
           title="Avatarsss",
           overview="En un exuberante planeta llamado Pandora viven los Na'vi, seres que ...",
-          year="2009",
+          year=2009,
           rating=7.8,
           category="Comedy")
 ]
 
 
-@app.get("/movies", tags=['Movies'])
-def get_movies():
-    return movies
+@app.get("/movies", tags=['Movies'], response_model=List[Movie])
+def get_movies() -> List[Movie]:
+    json_data = jsonable_encoder(movies)
+    return JSONResponse(content=json_data)
 
 
-@app.get("/movies/{id}", tags=["Movies"])
-def get_movie_by_id(id: int):
+@app.get("/movies/{id}", tags=["Movies"], response_model=Movie)
+def get_movie_by_id(id: int = Path(ge=1, le=100)) -> Movie:
     '''Get movie by ID'''
-    return next((movie for movie in movies if movie.id == id), [])
+    movies_by_id = [
+        movie for movie in movies if movie.id == id]
+    json_data = jsonable_encoder(movies_by_id)
+    return json_data
 
 
-@app.get("/movies/", tags=["Movies"])
-def get_movie_by_category(category: str):
+@app.get("/movies/", tags=["Movies"], response_model=List[Movie])
+def get_movie_by_category(category: str = Query(min_length=1)) -> List[Movie]:
     '''Get movie by Category'''
-    return [movie for movie in movies if movie.category == category]
+    movies_by_category = [
+        movie for movie in movies if movie.category == category]
+    json_data = jsonable_encoder(movies_by_category)
+    return json_data
 
 
 @app.post("/movies", tags=["Movies"])
 def create_movie(new_movie: Movie):
     new_movie.id = len(movies) + 1
     movies.append(new_movie)
-    return movies
+
+    return JSONResponse(content={"message": "Movie Created"})
 
 
 @app.put("/movies/{id}", tags=["Movies"])
@@ -74,4 +99,13 @@ def modify_movie_by_id(id: int, new_movie: Movie):
         if item.id == id:
             new_movie.id = id
             movies[i] = new_movie
-    return movies
+    json_data = jsonable_encoder(movies)
+    return JSONResponse(content={"message": "Movie modified"})
+
+
+@app.delete("/movies/{id}", tags=["Movies"])
+def delete_movie(id: int):
+    for item in movies:
+        if item.id == id:
+            movies.remove(item)
+    return JSONResponse(content={"message": "Movie Deleted"})
