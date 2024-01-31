@@ -1,31 +1,26 @@
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
-from fastapi.responses import JSONResponse
-from fastapi.encoders import jsonable_encoder
-from fastapi.security import HTTPBearer
-from pydantic import BaseModel, Field
 from typing import List
+from fastapi import Depends, FastAPI, Path, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 
-from jwt_manager import create_token, validate_token
+from jwt_manager import create_token
 from config.database import session, engine, Base
+from middlewares.jwt_bearer import JWTBearer
 from models.movie import Movie as MovieModel
+from middlewares.error_handler import ErrorHandler
 
 
 app = FastAPI()
 app.title = "My movie API"
 app.version = "0.0.1"
 
+app.add_middleware(ErrorHandler)
+
 db = session()
 
 Base.metadata.create_all(bind=engine)
-
-
-class JWTBearer(HTTPBearer):
-    async def __call__(self, request: Request):
-        auth = await super().__call__(request)
-        data = validate_token(auth.credentials)
-        if data["email"] != "admin@gmail.com":
-            raise HTTPException(status_code=403, detail="Wrong credentials")
 
 
 class User(BaseModel):
@@ -57,33 +52,6 @@ class Movie(BaseModel):
     }
 
 
-movies: List[Movie] = [
-    Movie(
-        id=1,
-        title="Avatar",
-        overview="En un exuberante planeta llamado Pandora viven los Na'vi, seres que ...",
-        year=2009,
-        rating=7.8,
-        category="Accion"
-    ),
-    Movie(
-        id=2,
-        title="Avatarsss",
-        overview="En un exuberante planeta llamado Pandora viven los Na'vi, seres que ...",
-        year=2009,
-        rating=7.8,
-        category="Accion"
-    ),
-
-    Movie(id=3,
-          title="Avatarsss",
-          overview="En un exuberante planeta llamado Pandora viven los Na'vi, seres que ...",
-          year=2009,
-          rating=7.8,
-          category="Comedy")
-]
-
-
 @app.get("/movies", tags=['Movies'], response_model=List[Movie], dependencies=[Depends(JWTBearer())])
 def get_movies() -> List[Movie]:
     result = db.query(MovieModel).all()
@@ -92,7 +60,7 @@ def get_movies() -> List[Movie]:
 
 
 @app.get("/movies/{id}", tags=["Movies"], response_model=Movie, responses={404: {"model": str}})
-def get_movie_by_id(id: int = Path(ge=1, le=100)) -> Movie:
+def get_movie_by_id(id: int = Path(ge=0, le=100)) -> Movie:
     '''Get movie by ID'''
     result = db.query(MovieModel).filter_by(id=id).first()
     if not result:
@@ -124,18 +92,30 @@ def create_movie(movie_request: Movie):
 
 @app.put("/movies/{id}", tags=["Movies"])
 def modify_movie_by_id(id: int, new_movie: Movie):
-    for i, item in enumerate(movies):
-        if item.id == id:
-            new_movie.id = id
-            movies[i] = new_movie
+    result = db.query(MovieModel).filter_by(id=id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Movie not found"})
+
+    result.category = new_movie.category
+    result.overview = new_movie.overview
+    result.rating = new_movie.rating
+    result.title = new_movie.title
+    result.year = new_movie.year
+
+    db.commit()
+
     return JSONResponse(content={"message": "Movie modified"})
 
 
 @app.delete("/movies/{id}", tags=["Movies"])
 def delete_movie(id: int):
-    for item in movies:
-        if item.id == id:
-            movies.remove(item)
+    result = db.query(MovieModel).filter_by(id=id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Movie not found"})
+
+    db.delete(result)
+    db.commit()
+
     return JSONResponse(content={"message": "Movie Deleted"})
 
 
